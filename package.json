@@ -1,20 +1,20 @@
 {
-  "name": "logademic",
+  "name": "logent",
   "version": "0.0.1",
-  "description": "Logademic contains a set of Logseq utilities for academics.",
+  "description": "Logent contains a set of Logseq utilities for academics.",
   "author": "Kai Xu (@xukai92)",
   "license": "MIT",
+  "main": "index.html",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
   "devDependencies": {
-    "shadow-cljs": "2.26.0"
+    "@logseq/libs": "^0.0.15",
+    "typescript": "^5.0.0"
   },
-  "dependencies": {
-    "@logseq/libs": "0.0.15",
-    "openai": "4.20.1"
-  },
+  "dependencies": {},
   "logseq": {
-    "title": "Logademic",
-    "main": "index.html",
-    "icon": "icon.png",
-    "id": "_ghnpohjtq"
+    "id": "_jr8volcku"
   }
 }

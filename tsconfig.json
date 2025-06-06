@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "None",
+    "skipLibCheck": true,
+    "strict": false,
+    "outDir": "./",
+    "rootDir": "./src"
+  },
+  "include": ["src/plugin.ts"],
+  "exclude": ["node_modules", "*.js"]
+}
