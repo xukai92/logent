@@ -1,4 +1,4 @@
-// OpenAI will be loaded via script tag
+// Custom OpenAI client implementation
 // Constants
 const DEV_MSG = 'dev log';
 const SETTINGS_SCHEMA = [
@@ -129,75 +129,6 @@ function newClient(baseURL, apiKey) {
         apiKey: apiKey || ''
     };
 }
-async function* chatCompletionsCreateStream(client, messages, model) {
-    const response = await fetch(`${client.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${client.apiKey}`
-        },
-        body: JSON.stringify({
-            messages,
-            model,
-            stream: true
-        })
-    });
-    if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-    }
-    const reader = response.body?.getReader();
-    if (!reader) {
-        throw new Error('No response body');
-    }
-    const decoder = new TextDecoder();
-    let buffer = '';
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done)
-                break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
-                    if (data === '[DONE]') {
-                        return;
-                    }
-                    try {
-                        const chunk = JSON.parse(data);
-                        yield chunk;
-                    }
-                    catch (e) {
-                        // Skip malformed JSON
-                    }
-                }
-            }
-        }
-    }
-    finally {
-        reader.releaseLock();
-    }
-}
-async function chatCompletionsCreate(client, messages, model) {
-    const response = await fetch(`${client.baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${client.apiKey}`
-        },
-        body: JSON.stringify({
-            messages,
-            model,
-            stream: false
-        })
-    });
-    if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-    }
-    return await response.json();
-}
 // Chat functions
 const FORMAT_INSTRUCTION_MARKDOWN = `Please assist by reading and responding in Markdown syntax used by Logseq's blocks, with the following additional notes:
 * Use \`*\` for lists instead of \`-\`.
@@ -284,120 +215,75 @@ function childBlockToMessage(childBlock, format, currentUuid, currentContent) {
         };
     }
 }
-// Link functions
-function hostOf(url) {
-    try {
-        return new URL(url).hostname;
-    }
-    catch {
-        return '';
-    }
-}
-function knownHost(host) {
-    return ['arxiv.org', 'openreview.net'].includes(host);
-}
-function replacementStrFor(host) {
-    switch (host) {
-        case 'arxiv.org':
-            return 'abs';
-        case 'openreview.net':
-            return 'forum';
-        default:
-            return null;
-    }
-}
-function ensureWebUrl(url) {
-    const endsWithPdf = url.endsWith('.pdf');
-    const urlWithoutPdf = endsWithPdf ? url.slice(0, -4) : url;
-    const replacementStr = replacementStrFor(hostOf(url));
-    if (!replacementStr) {
-        return urlWithoutPdf;
-    }
-    return urlWithoutPdf.replace(/pdf/, replacementStr);
-}
-async function getDomTree(url) {
-    const response = await fetch(url);
-    const html = await response.text();
-    const parser = new DOMParser();
-    return parser.parseFromString(html, 'text/html');
-}
-function titleContentOf(domTree) {
-    const titleElement = domTree.querySelector('title');
-    return titleElement?.textContent || '';
-}
-function abstractContentOf(host, domTree) {
-    switch (host) {
-        case 'arxiv.org': {
-            const abstractElement = domTree.querySelector('.abstract');
-            return abstractElement?.innerHTML || '';
-        }
-        case 'openreview.net': {
-            const metaElement = domTree.querySelector('meta[name="citation_abstract"]');
-            return metaElement?.getAttribute('content') || '';
-        }
-        default:
-            return '';
-    }
-}
-function cleanTitleContent(host, titleContent) {
-    switch (host) {
-        case 'arxiv.org':
-            return titleContent.replace(/^\[(.*?)\]\s/, '');
-        case 'openreview.net':
-            return titleContent.replace(/\s(\|\sOpenReview)$/, '');
-        default:
-            return titleContent;
-    }
-}
-async function paperInfoOf(url) {
-    const host = hostOf(url);
-    const domTree = await getDomTree(url);
-    const titleContent = titleContentOf(domTree);
-    const title = cleanTitleContent(host, titleContent);
-    const abstract = abstractContentOf(host, domTree);
-    return { title, abstract };
-}
-function formatLink(title, link, format) {
-    switch (format) {
-        case 'markdown':
-            return `[${title}](${link})`;
-        case 'org':
-            return `[[${link}][${title}]]`;
-        default:
-            throw new Error(`Unknown format: ${format}`);
-    }
-}
 // Main plugin functions
-async function linkPaper(uuid, content, _includeRating) {
-    const rawUrl = content.trim();
-    const host = hostOf(rawUrl);
-    if (knownHost(host)) {
-        const url = ensureWebUrl(rawUrl);
-        const paperInfo = await paperInfoOf(url);
-        const currentFormat = await getCurrentFormat();
-        const userFormat = await getUserFormat();
-        const format = currentFormat || userFormat;
-        const newContent = formatLink(paperInfo.title, url, format);
-        await updateBlock(uuid, newContent);
-        await insertBlock(uuid, paperInfo.abstract, { focus: false });
-        await setBlockCollapsed(uuid, { flag: true });
+async function* chatCompletionsCreateStream(client, messages, model) {
+    const response = await fetch(`${client.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${client.apiKey}`
+        },
+        body: JSON.stringify({
+            messages,
+            model,
+            stream: true
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`);
     }
-    else {
-        console.log(`${DEV_MSG} | unknown host ${host}`);
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error('No response body');
+    }
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done)
+                break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+                    if (data === '[DONE]') {
+                        return;
+                    }
+                    try {
+                        const chunk = JSON.parse(data);
+                        yield chunk;
+                    }
+                    catch (e) {
+                        // Skip malformed JSON
+                    }
+                }
+            }
+        }
+    }
+    finally {
+        reader.releaseLock();
     }
 }
-async function aLink(includeRating) {
-    const currentBlock = await getCurrentBlock();
-    const currentUuid = currentBlock.uuid;
-    const currentContent = await getEditingBlockContent();
-    await linkPaper(currentUuid, currentContent, includeRating);
-}
-async function aLinks(includeRating) {
-    const currentBlock = await getCurrentBlock({ includeChildren: true });
-    const childBlocks = currentBlock.children || [];
-    for (const childBlock of childBlocks) {
-        await linkPaper(childBlock.uuid, childBlock.content, includeRating);
+async function chatCompletionsCreate(client, messages, model) {
+    const response = await fetch(`${client.baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${client.apiKey}`
+        },
+        body: JSON.stringify({
+            messages,
+            model,
+            stream: false
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status}`);
     }
+    return await response.json();
 }
 async function chatBlock(client, messages, model, stream, newBlock) {
     if (settingOf('debugPrompts')) {
@@ -529,8 +415,6 @@ async function aDev() {
 }
 function main() {
     logseq.useSettingsSchema(SETTINGS_SCHEMA);
-    logseq.Editor.registerSlashCommand('a-link', () => aLink(false));
-    logseq.Editor.registerSlashCommand('a-links', () => aLinks(false));
     logseq.Editor.registerSlashCommand('a-ask', aAsk);
     logseq.Editor.registerSlashCommand('a-chat', aChat);
     logseq.Editor.registerSlashCommand('a-dev', aDev);

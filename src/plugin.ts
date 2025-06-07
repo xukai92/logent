@@ -1,4 +1,4 @@
-// OpenAI will be loaded via script tag
+// Custom OpenAI client implementation
 
 // Types
 interface Settings {
@@ -28,17 +28,6 @@ interface Block {
   children?: Block[];
 }
 
-interface OpenAIResponse {
-  choices: Array<{
-    message?: {
-      content: string;
-    };
-    delta?: {
-      content?: string;
-    };
-    finish_reason?: string;
-  }>;
-}
 
 // Declare logseq global
 declare const logseq: any;
@@ -196,91 +185,6 @@ function newClient(baseURL?: string, apiKey?: string): OpenAIClient {
   };
 }
 
-async function* chatCompletionsCreateStream(
-  client: OpenAIClient,
-  messages: ChatMessage[],
-  model: string
-): AsyncGenerator<OpenAIResponse, void, unknown> {
-  const response = await fetch(`${client.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${client.apiKey}`
-    },
-    body: JSON.stringify({
-      messages,
-      model,
-      stream: true
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.status}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error('No response body');
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            return;
-          }
-          
-          try {
-            const chunk = JSON.parse(data);
-            yield chunk;
-          } catch (e) {
-            // Skip malformed JSON
-          }
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-async function chatCompletionsCreate(
-  client: OpenAIClient,
-  messages: ChatMessage[],
-  model: string
-): Promise<OpenAIResponse> {
-  const response = await fetch(`${client.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${client.apiKey}`
-    },
-    body: JSON.stringify({
-      messages,
-      model,
-      stream: false
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI API error: ${response.status}`);
-  }
-
-  return await response.json();
-}
-
 // Chat functions
 const FORMAT_INSTRUCTION_MARKDOWN = `Please assist by reading and responding in Markdown syntax used by Logseq's blocks, with the following additional notes:
 * Use \`*\` for lists instead of \`-\`.
@@ -350,11 +254,11 @@ function removePropertyStr(format: string, s: string): string {
   return pattern ? s.replace(pattern, '') : s;
 }
 
-function getMessageContent(response: OpenAIResponse): string {
+function getMessageContent(response: any): string {
   return response.choices[0]?.message?.content || '';
 }
 
-function getDeltaContent(chunk: OpenAIResponse): string {
+function getDeltaContent(chunk: any): string {
   return chunk.choices[0]?.delta?.content || '';
 }
 
@@ -386,6 +290,91 @@ function childBlockToMessage(
 }
 
 // Main plugin functions
+
+async function* chatCompletionsCreateStream(
+  client: OpenAIClient,
+  messages: ChatMessage[],
+  model: string
+): AsyncGenerator<any, void, unknown> {
+  const response = await fetch(`${client.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${client.apiKey}`
+    },
+    body: JSON.stringify({
+      messages,
+      model,
+      stream: true
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error('No response body');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            return;
+          }
+          
+          try {
+            const chunk = JSON.parse(data);
+            yield chunk;
+          } catch (e) {
+            // Skip malformed JSON
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function chatCompletionsCreate(
+  client: OpenAIClient,
+  messages: ChatMessage[],
+  model: string
+): Promise<any> {
+  const response = await fetch(`${client.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${client.apiKey}`
+    },
+    body: JSON.stringify({
+      messages,
+      model,
+      stream: false
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI API error: ${response.status}`);
+  }
+
+  return await response.json();
+}
 
 async function chatBlock(
   client: OpenAIClient,
