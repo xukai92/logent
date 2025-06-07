@@ -247,14 +247,15 @@ function augmentSystemMessage(systemMessage: string, format: string): string {
 
 function prependPropertyStr(format: string, model: string, provider: string, s: string): string {
   let propertyStr: string | null = null;
-  const modelInfo = `${provider}:${model}`;
+  // const modelInfo = `${provider}:${model}`;
+  const modelInfo = `${model}`;
   
   switch (format) {
     case 'markdown':
-      propertyStr = `chatseq-model:: ${modelInfo}`;
+      propertyStr = `language-model:: ${modelInfo}`;
       break;
     case 'org':
-      propertyStr = `:PROPERTIES:\n:chatseq-model: ${modelInfo}\n:END:`;
+      propertyStr = `:PROPERTIES:\n:language-model: ${modelInfo}\n:END:`;
       break;
     default:
       propertyStr = null;
@@ -268,10 +269,10 @@ function removePropertyStr(format: string, s: string): string {
   
   switch (format) {
     case 'markdown':
-      pattern = /^chatseq-model:: .+\n/;
+      pattern = /^language-model:: .+\n/;
       break;
     case 'org':
-      pattern = /^:PROPERTIES:\n:chatseq-model: .+\n:END:\n/;
+      pattern = /^:PROPERTIES:\n:language-model: .+\n:END:\n/;
       break;
     default:
       pattern = null;
@@ -295,7 +296,7 @@ function childBlockToMessage(
   currentContent: string
 ): ChatMessage {
   const { uuid, content, properties } = childBlock;
-  const propertyValue = properties?.chatseqModel;
+  const propertyValue = properties?.languageModel;
   
   if (propertyValue) {
     return {
@@ -709,9 +710,9 @@ async function aDev(): Promise<void> {
   const currentBlock = await getCurrentBlock();
   const currentUuid = currentBlock.uuid;
   const properties = await getBlockProperties(currentUuid);
-  const chatseqModel = await getBlockProperty(currentUuid, 'chatseq-model');
+  const languageModel = await getBlockProperty(currentUuid, 'language-model');
   console.log(properties);
-  console.log(chatseqModel);
+  console.log(languageModel);
 }
 
 function main(): void {

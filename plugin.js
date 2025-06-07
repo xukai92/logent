@@ -182,13 +182,14 @@ function augmentSystemMessage(systemMessage, format) {
 }
 function prependPropertyStr(format, model, provider, s) {
     let propertyStr = null;
-    const modelInfo = `${provider}:${model}`;
+    // const modelInfo = `${provider}:${model}`;
+    const modelInfo = `${model}`;
     switch (format) {
         case 'markdown':
-            propertyStr = `chatseq-model:: ${modelInfo}`;
+            propertyStr = `language-model:: ${modelInfo}`;
             break;
         case 'org':
-            propertyStr = `:PROPERTIES:\n:chatseq-model: ${modelInfo}\n:END:`;
+            propertyStr = `:PROPERTIES:\n:language-model: ${modelInfo}\n:END:`;
             break;
         default:
             propertyStr = null;
@@ -199,10 +200,10 @@ function removePropertyStr(format, s) {
     let pattern = null;
     switch (format) {
         case 'markdown':
-            pattern = /^chatseq-model:: .+\n/;
+            pattern = /^language-model:: .+\n/;
             break;
         case 'org':
-            pattern = /^:PROPERTIES:\n:chatseq-model: .+\n:END:\n/;
+            pattern = /^:PROPERTIES:\n:language-model: .+\n:END:\n/;
             break;
         default:
             pattern = null;
@@ -217,7 +218,7 @@ function getDeltaContent(chunk) {
 }
 function childBlockToMessage(childBlock, format, currentUuid, currentContent) {
     const { uuid, content, properties } = childBlock;
-    const propertyValue = properties?.chatseqModel;
+    const propertyValue = properties?.languageModel;
     if (propertyValue) {
         return {
             role: 'assistant',
@@ -563,9 +564,9 @@ async function aDev() {
     const currentBlock = await getCurrentBlock();
     const currentUuid = currentBlock.uuid;
     const properties = await getBlockProperties(currentUuid);
-    const chatseqModel = await getBlockProperty(currentUuid, 'chatseq-model');
+    const languageModel = await getBlockProperty(currentUuid, 'language-model');
     console.log(properties);
-    console.log(chatseqModel);
+    console.log(languageModel);
 }
 function main() {
     logseq.useSettingsSchema(SETTINGS_SCHEMA);
