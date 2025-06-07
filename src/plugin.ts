@@ -14,10 +14,6 @@ interface Settings {
   userName?: string;
 }
 
-interface PaperInfo {
-  title: string;
-  abstract: string;
-}
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -389,137 +385,7 @@ function childBlockToMessage(
   }
 }
 
-// Link functions
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return '';
-  }
-}
-
-function knownHost(host: string): boolean {
-  return ['arxiv.org', 'openreview.net'].includes(host);
-}
-
-function replacementStrFor(host: string): string | null {
-  switch (host) {
-    case 'arxiv.org':
-      return 'abs';
-    case 'openreview.net':
-      return 'forum';
-    default:
-      return null;
-  }
-}
-
-function ensureWebUrl(url: string): string {
-  const endsWithPdf = url.endsWith('.pdf');
-  const urlWithoutPdf = endsWithPdf ? url.slice(0, -4) : url;
-  const replacementStr = replacementStrFor(hostOf(url));
-  
-  if (!replacementStr) {
-    return urlWithoutPdf;
-  }
-  
-  return urlWithoutPdf.replace(/pdf/, replacementStr);
-}
-
-async function getDomTree(url: string): Promise<Document> {
-  const response = await fetch(url);
-  const html = await response.text();
-  const parser = new DOMParser();
-  return parser.parseFromString(html, 'text/html');
-}
-
-function titleContentOf(domTree: Document): string {
-  const titleElement = domTree.querySelector('title');
-  return titleElement?.textContent || '';
-}
-
-function abstractContentOf(host: string, domTree: Document): string {
-  switch (host) {
-    case 'arxiv.org': {
-      const abstractElement = domTree.querySelector('.abstract');
-      return abstractElement?.innerHTML || '';
-    }
-    case 'openreview.net': {
-      const metaElement = domTree.querySelector('meta[name="citation_abstract"]');
-      return metaElement?.getAttribute('content') || '';
-    }
-    default:
-      return '';
-  }
-}
-
-function cleanTitleContent(host: string, titleContent: string): string {
-  switch (host) {
-    case 'arxiv.org':
-      return titleContent.replace(/^\[(.*?)\]\s/, '');
-    case 'openreview.net':
-      return titleContent.replace(/\s(\|\sOpenReview)$/, '');
-    default:
-      return titleContent;
-  }
-}
-
-async function paperInfoOf(url: string): Promise<PaperInfo> {
-  const host = hostOf(url);
-  const domTree = await getDomTree(url);
-  const titleContent = titleContentOf(domTree);
-  const title = cleanTitleContent(host, titleContent);
-  const abstract = abstractContentOf(host, domTree);
-  
-  return { title, abstract };
-}
-
-function formatLink(title: string, link: string, format: string): string {
-  switch (format) {
-    case 'markdown':
-      return `[${title}](${link})`;
-    case 'org':
-      return `[[${link}][${title}]]`;
-    default:
-      throw new Error(`Unknown format: ${format}`);
-  }
-}
-
 // Main plugin functions
-async function linkPaper(uuid: string, content: string, _includeRating: boolean): Promise<void> {
-  const rawUrl = content.trim();
-  const host = hostOf(rawUrl);
-  
-  if (knownHost(host)) {
-    const url = ensureWebUrl(rawUrl);
-    const paperInfo = await paperInfoOf(url);
-    const currentFormat = await getCurrentFormat();
-    const userFormat = await getUserFormat();
-    const format = currentFormat || userFormat;
-    const newContent = formatLink(paperInfo.title, url, format);
-    
-    await updateBlock(uuid, newContent);
-    await insertBlock(uuid, paperInfo.abstract, { focus: false });
-    await setBlockCollapsed(uuid, { flag: true });
-  } else {
-    console.log(`${DEV_MSG} | unknown host ${host}`);
-  }
-}
-
-async function aLink(includeRating: boolean): Promise<void> {
-  const currentBlock = await getCurrentBlock();
-  const currentUuid = currentBlock.uuid;
-  const currentContent = await getEditingBlockContent();
-  await linkPaper(currentUuid, currentContent, includeRating);
-}
-
-async function aLinks(includeRating: boolean): Promise<void> {
-  const currentBlock = await getCurrentBlock({ includeChildren: true });
-  const childBlocks = currentBlock.children || [];
-  
-  for (const childBlock of childBlocks) {
-    await linkPaper(childBlock.uuid, childBlock.content, includeRating);
-  }
-}
 
 async function chatBlock(
   client: OpenAIClient,
@@ -675,8 +541,6 @@ async function aDev(): Promise<void> {
 function main(): void {
   logseq.useSettingsSchema(SETTINGS_SCHEMA);
   
-  logseq.Editor.registerSlashCommand('a-link', () => aLink(false));
-  logseq.Editor.registerSlashCommand('a-links', () => aLinks(false));
   logseq.Editor.registerSlashCommand('a-ask', aAsk);
   logseq.Editor.registerSlashCommand('a-chat', aChat);
   logseq.Editor.registerSlashCommand('a-dev', aDev);
