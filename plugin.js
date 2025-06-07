@@ -1,19 +1,28 @@
-// Custom OpenAI client implementation
+// Multi-provider AI client implementation (OpenAI and Anthropic)
 // Constants
 const DEV_MSG = 'dev log';
 const SETTINGS_SCHEMA = [
     {
+        key: 'provider',
+        type: 'enum',
+        title: 'AI Provider',
+        description: 'Choose between OpenAI and Anthropic.',
+        enumPicker: 'radio',
+        enumChoices: ['openai', 'anthropic'],
+        default: 'openai'
+    },
+    {
         key: 'baseURL',
         type: 'string',
         title: 'API URL',
-        description: 'The URL for an OpenAI-compatible API (defaults to OpenAI\'s API).',
+        description: 'Custom API URL (optional). Leave empty for default.',
         default: null
     },
     {
         key: 'apiKey',
         type: 'string',
         title: 'API Key',
-        description: 'Authentication key; for OpenAI\'s, see https://platform.openai.com/api-keys.',
+        description: 'Authentication key for the selected provider.',
         default: null
     },
     {
@@ -22,7 +31,7 @@ const SETTINGS_SCHEMA = [
         title: 'Model name',
         description: 'The name of the model to use.',
         enumPicker: 'radio',
-        enumChoices: ['gpt-3.5-turbo', 'gpt-4-turbo', 'gpt-4-vision-preview', 'custom-model'],
+        enumChoices: ['gpt-3.5-turbo', 'gpt-4-turbo', 'gpt-4-vision-preview', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'custom-model'],
         default: 'gpt-3.5-turbo'
     },
     {
@@ -123,9 +132,21 @@ async function setBlockCollapsed(uuid, options) {
 async function getEditingBlockContent() {
     return await logseq.Editor.getEditingBlockContent();
 }
-function newClient(baseURL, apiKey) {
+function newClient(provider, baseURL, apiKey) {
+    let defaultBaseURL;
+    switch (provider) {
+        case 'openai':
+            defaultBaseURL = 'https://api.openai.com/v1';
+            break;
+        case 'anthropic':
+            defaultBaseURL = 'https://api.anthropic.com/v1';
+            break;
+        default:
+            defaultBaseURL = 'https://api.openai.com/v1';
+    }
     return {
-        baseURL: baseURL || 'https://api.openai.com/v1',
+        provider,
+        baseURL: baseURL || defaultBaseURL,
         apiKey: apiKey || ''
     };
 }
@@ -159,14 +180,15 @@ function augmentSystemMessage(systemMessage, format) {
     }
     return formatInstruction ? `${systemMessage} ${formatInstruction}` : systemMessage;
 }
-function prependPropertyStr(format, model, s) {
+function prependPropertyStr(format, model, provider, s) {
     let propertyStr = null;
+    const modelInfo = `${provider}:${model}`;
     switch (format) {
         case 'markdown':
-            propertyStr = `chatseq-model:: ${model}`;
+            propertyStr = `chatseq-model:: ${modelInfo}`;
             break;
         case 'org':
-            propertyStr = `:PROPERTIES:\n:chatseq-model: ${model}\n:END:`;
+            propertyStr = `:PROPERTIES:\n:chatseq-model: ${modelInfo}\n:END:`;
             break;
         default:
             propertyStr = null;
@@ -217,6 +239,14 @@ function childBlockToMessage(childBlock, format, currentUuid, currentContent) {
 }
 // Main plugin functions
 async function* chatCompletionsCreateStream(client, messages, model) {
+    if (client.provider === 'anthropic') {
+        yield* anthropicMessagesCreateStream(client, messages, model);
+    }
+    else {
+        yield* openaiChatCompletionsCreateStream(client, messages, model);
+    }
+}
+async function* openaiChatCompletionsCreateStream(client, messages, model) {
     const response = await fetch(`${client.baseURL}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -267,7 +297,91 @@ async function* chatCompletionsCreateStream(client, messages, model) {
         reader.releaseLock();
     }
 }
+async function* anthropicMessagesCreateStream(client, messages, model) {
+    const { systemMessage: systemPrompt, userMessages } = separateSystemMessage(messages);
+    const response = await fetch(`${client.baseURL}/messages`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': client.apiKey,
+            'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: userMessages.map(msg => ({
+                role: msg.role === 'assistant' ? 'assistant' : 'user',
+                content: msg.content
+            })),
+            stream: true
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`Anthropic API error: ${response.status}`);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error('No response body');
+    }
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done)
+                break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+                    if (data === '[DONE]') {
+                        return;
+                    }
+                    try {
+                        const chunk = JSON.parse(data);
+                        // Convert Anthropic format to OpenAI-like format for compatibility
+                        if (chunk.type === 'content_block_delta' && chunk.delta?.text) {
+                            yield {
+                                choices: [{
+                                        delta: {
+                                            content: chunk.delta.text
+                                        },
+                                        finish_reason: null
+                                    }]
+                            };
+                        }
+                        else if (chunk.type === 'message_stop') {
+                            yield {
+                                choices: [{
+                                        delta: {},
+                                        finish_reason: 'stop'
+                                    }]
+                            };
+                        }
+                    }
+                    catch (e) {
+                        // Skip malformed JSON
+                    }
+                }
+            }
+        }
+    }
+    finally {
+        reader.releaseLock();
+    }
+}
 async function chatCompletionsCreate(client, messages, model) {
+    if (client.provider === 'anthropic') {
+        return await anthropicMessagesCreate(client, messages, model);
+    }
+    else {
+        return await openaiChatCompletionsCreate(client, messages, model);
+    }
+}
+async function openaiChatCompletionsCreate(client, messages, model) {
     const response = await fetch(`${client.baseURL}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -284,6 +398,44 @@ async function chatCompletionsCreate(client, messages, model) {
         throw new Error(`OpenAI API error: ${response.status}`);
     }
     return await response.json();
+}
+async function anthropicMessagesCreate(client, messages, model) {
+    const { systemMessage: systemPrompt, userMessages } = separateSystemMessage(messages);
+    const response = await fetch(`${client.baseURL}/messages`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': client.apiKey,
+            'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+            model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: userMessages.map(msg => ({
+                role: msg.role === 'assistant' ? 'assistant' : 'user',
+                content: msg.content
+            }))
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`Anthropic API error: ${response.status}`);
+    }
+    const result = await response.json();
+    // Convert Anthropic format to OpenAI-like format for compatibility
+    return {
+        choices: [{
+                message: {
+                    content: result.content?.[0]?.text || ''
+                }
+            }]
+    };
+}
+function separateSystemMessage(messages) {
+    const systemMessages = messages.filter(msg => msg.role === 'system');
+    const userMessages = messages.filter(msg => msg.role !== 'system');
+    const systemMessage = systemMessages.map(msg => msg.content).join('\n');
+    return { systemMessage, userMessages };
 }
 async function chatBlock(client, messages, model, stream, newBlock) {
     if (settingOf('debugPrompts')) {
@@ -339,9 +491,10 @@ function customModelOrModel() {
     return model === 'custom-model' ? (customModel || 'gpt-3.5-turbo') : model;
 }
 async function aAsk() {
+    const provider = settingOf('provider') || 'openai';
     const baseUrl = settingOf('baseURL');
     const apiKey = settingOf('apiKey');
-    const client = newClient(baseUrl, apiKey);
+    const client = newClient(provider, baseUrl, apiKey);
     const systemMessage = settingOf('systemMessage');
     const currentFormat = await getCurrentFormat();
     const userFormat = await getUserFormat();
@@ -356,7 +509,7 @@ async function aAsk() {
     ];
     const model = customModelOrModel();
     const stream = settingOf('stream');
-    const newContent = prependPropertyStr(format, model, '\n');
+    const newContent = prependPropertyStr(format, model, provider, '\n');
     const newBlock = await insertBlock(currentUuid, newContent, { focus: false });
     await chatBlock(client, messages, model, stream, newBlock);
     if (settingOf('autoNewBlock')) {
@@ -367,9 +520,10 @@ async function aAsk() {
     }
 }
 async function aChat() {
+    const provider = settingOf('provider') || 'openai';
     const baseUrl = settingOf('baseURL');
     const apiKey = settingOf('apiKey');
-    const client = newClient(baseUrl, apiKey);
+    const client = newClient(provider, baseUrl, apiKey);
     const systemMessage = settingOf('systemMessage');
     const currentFormat = await getCurrentFormat();
     const userFormat = await getUserFormat();
@@ -393,7 +547,7 @@ async function aChat() {
     const messages = [...parentMessages, ...childMessages];
     const model = customModelOrModel();
     const stream = settingOf('stream');
-    const newContent = prependPropertyStr(format, model, '\n');
+    const newContent = prependPropertyStr(format, model, provider, '\n');
     const parentUuid = parentBlock.uuid;
     const newBlock = await insertBlock(parentUuid, newContent, { focus: false });
     const newUuid = newBlock.uuid;
