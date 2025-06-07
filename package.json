@@ -13,9 +13,6 @@
     "@logseq/libs": "^0.0.15",
     "typescript": "^5.0.0"
   },
-  "dependencies": {
-    "openai": "^5.1.1"
-  },
   "logseq": {
     "id": "_jr8volcku",
     "icon": "icon.png"
