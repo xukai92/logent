@@ -706,6 +706,114 @@ async function aChat(): Promise<void> {
   }
 }
 
+async function aNew(): Promise<void> {
+  const provider = settingOf('provider') || 'openai';
+  const baseUrl = settingOf('baseURL');
+  const apiKey = settingOf('apiKey');
+  const client = newClient(provider, baseUrl, apiKey);
+  const systemMessage = settingOf('systemMessage');
+  const currentFormat = await getCurrentFormat();
+  const userFormat = await getUserFormat();
+  const format = currentFormat || userFormat;
+  const augmentedSystemMessage = augmentSystemMessage(systemMessage + " Please provide an improved or edited version of the given content.", format);
+  const currentBlock = await getCurrentBlock();
+  const currentUuid = currentBlock.uuid;
+  const currentContent = await getEditingBlockContent();
+  const messages: ChatMessage[] = [
+    { role: 'system', content: augmentedSystemMessage },
+    { role: 'user', content: currentContent }
+  ];
+  const model = customModelOrModel();
+  const stream = settingOf('stream');
+  const newContent = prependPropertyStr(format, model, provider, '\n');
+  const newBlock = await insertBlock(currentUuid, newContent, { sibling: true, focus: false });
+  
+  await chatBlock(client, messages, model, stream, newBlock);
+  
+  if (settingOf('autoNewBlock')) {
+    const nextSibling = await getNextSiblingBlock(newBlock.uuid);
+    if (!nextSibling) {
+      await insertBlock(newBlock.uuid, '', { sibling: true });
+    }
+  }
+}
+
+async function chatBlockReplace(
+  client: AIClient,
+  messages: ChatMessage[],
+  model: string,
+  stream: boolean,
+  blockUuid: string
+): Promise<void> {
+  if (settingOf('debugPrompts')) {
+    console.log('---');
+    console.log(messages.map(msg => `${msg.role}:\n${msg.content}`).join('\n\n'));
+    console.log('---');
+  }
+  
+  if (stream) {
+    const start = Date.now();
+    const maxStreamElapsed = settingOf('maxStreamElapsed') || 60;
+    let content = '';
+    
+    try {
+      for await (const chunk of chatCompletionsCreateStream(client, messages, model)) {
+        const elapsed = (Date.now() - start) / 1000;
+        
+        if (elapsed < maxStreamElapsed) {
+          const deltaContent = getDeltaContent(chunk);
+          content += deltaContent;
+          const finishReason = chunk.choices[0]?.finish_reason;
+          
+          await updateBlock(blockUuid, content, { focus: false });
+          
+          if (finishReason) {
+            break;
+          }
+        } else {
+          logseq.App.showMsg('Time out when reading response stream!', 'error');
+          break;
+        }
+      }
+    } catch (error) {
+      console.error('Stream error:', error);
+      logseq.App.showMsg('Error in stream response', 'error');
+    }
+  } else {
+    try {
+      const response = await chatCompletionsCreate(client, messages, model);
+      const messageContent = getMessageContent(response);
+      await updateBlock(blockUuid, messageContent, { focus: false });
+    } catch (error) {
+      console.error('Chat completion error:', error);
+      logseq.App.showMsg('Error in chat completion', 'error');
+    }
+  }
+}
+
+async function aSwap(): Promise<void> {
+  const provider = settingOf('provider') || 'openai';
+  const baseUrl = settingOf('baseURL');
+  const apiKey = settingOf('apiKey');
+  const client = newClient(provider, baseUrl, apiKey);
+  const systemMessage = settingOf('systemMessage');
+  const currentFormat = await getCurrentFormat();
+  const userFormat = await getUserFormat();
+  const format = currentFormat || userFormat;
+  const augmentedSystemMessage = augmentSystemMessage(systemMessage + " Please provide an improved or edited version of the given content.", format);
+  const currentBlock = await getCurrentBlock();
+  const currentUuid = currentBlock.uuid;
+  const currentContent = await getEditingBlockContent();
+  const messages: ChatMessage[] = [
+    { role: 'system', content: augmentedSystemMessage },
+    { role: 'user', content: currentContent }
+  ];
+  const model = customModelOrModel();
+  const stream = settingOf('stream');
+  
+  await chatBlockReplace(client, messages, model, stream, currentUuid);
+}
+
 async function aDev(): Promise<void> {
   const currentBlock = await getCurrentBlock();
   const currentUuid = currentBlock.uuid;
@@ -720,6 +828,8 @@ function main(): void {
   
   logseq.Editor.registerSlashCommand('a-ask', aAsk);
   logseq.Editor.registerSlashCommand('a-chat', aChat);
+  logseq.Editor.registerSlashCommand('a-new', aNew);
+  logseq.Editor.registerSlashCommand('a-swap', aSwap);
   logseq.Editor.registerSlashCommand('a-dev', aDev);
   
   const userName = settingOf('userName');

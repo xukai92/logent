@@ -30,6 +30,8 @@ Logent contains a set of Logseq utilities for academics, providing AI-powered ch
 
 - `/a-ask` - Ask AI a question about the current block content
 - `/a-chat` - Continue conversation with AI using parent block context
+- `/a-new` - Create an improved/edited version of the current block in a new block after it
+- `/a-swap` - Edit the current block in place with an improved version
 - `/a-link` - Convert a paper URL into a formatted link with abstract
 - `/a-links` - Process multiple paper URLs in child blocks
 
