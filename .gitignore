@@ -26,3 +26,6 @@ pom.xml.asc
 dist/
 out/
 tmp/
+
+# Compiled TypeScript output
+plugin.js
