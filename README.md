@@ -65,7 +65,9 @@ This plugin has been converted from ClojureScript to TypeScript for better maint
 ### Development Commands
 - `npm install` - Install dependencies
 - `npm run dev` - Development mode with file watching
-- `npm run build` - Build the plugin for production
+- `npm run build` - Build the plugin for production (compiles TypeScript to plugin.js)
+
+**Note**: The `plugin.js` file is generated from `src/plugin.ts` and should not be manually edited. It's excluded from git tracking, so run `npm run build` after cloning.
 
 ### Project Structure
 - `src/plugin.ts` - Main plugin entry point with all functionality

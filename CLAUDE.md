@@ -16,8 +16,9 @@ Logent is a Logseq plugin for academics that provides AI-powered chat functional
 
 ### Core Structure
 - **Main Entry Point**: `src/index.ts` - Simple import of the plugin module
-- **Plugin Implementation**: `src/plugin.ts` - Contains all functionality in a single file (~730 lines)
-- **Build Output**: TypeScript compiles directly to the root directory (`./`)
+- **Plugin Implementation**: `src/plugin.ts` - Contains all functionality in a single file (~840 lines)
+- **Build Output**: TypeScript compiles to `plugin.js` in root directory (excluded from git)
+- **Development**: Always edit `src/plugin.ts`, never `plugin.js` directly
 
 ### Key Components
 
